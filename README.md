@@ -1,6 +1,8 @@
 # midi-visualizer
 
-A 2D MIDI visualizer written in Rust.
+🎵 A 2D MIDI visualizer written in Rust.
+
+![](./screenshot.png)
 
 # Usage
 

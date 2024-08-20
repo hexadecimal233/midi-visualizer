@@ -1,34 +1,40 @@
 #![allow(unused_variables)]
 
+extern crate ezing;
 extern crate sdl2;
 
+// TODO: Integrated MIDI Player
 use midly::{num::u7, MetaMessage, MidiMessage, Smf, TrackEventKind};
-use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::FRect;
+use sdl2::event::Event;
 use std::{collections::HashMap, time::Duration};
 
-const NOTE_COL_PRESSED: Color = Color::RGB(255, 255, 255);
-const NOTE_COL: Color = Color::RGB(200, 200, 200);
-const BG_COL: Color = Color::RGB(0, 0, 0);
-const NOTE_HEIGHT: f32 = 5.0;
-const NOTE_BORDER: f32 = 1.0;
-const FPS: u32 = 60;
-const SCREEN_SIZE: (u32, u32) = (800, 640); // 5:4
-const TICKSCENE_WIDTH: i32 = 10000;
-const CUR_IND_LOC: i32 = SCREEN_SIZE.0 as i32 / 2;
+// TODO: Configuration files
+const NOTE_BR_PRESSED: u8 = 255;
+const NOTE_BR: u8 = 150;
+const NOTE_COL: Color = Color::RGB(NOTE_BR, NOTE_BR, NOTE_BR);
 const CUR_IND_COL: Color = Color::RGB(255, 0, 0);
+const BG_COL: Color = Color::RGB(0, 0, 0);
+const NOTE_HEIGHT: f32 = 10.0;
+const NOTE_PADDING: f32 = 1.0;
+const FPS: u32 = 60;
+const TICKSCENE_WIDTH: i32 = 5000; // Lower means notes are larger
+const CUR_IND_LOC: i32 = 200; // Offsets the current indicator
+const SCREEN_SIZE: (u32, u32) = (800, 800); // 5:4
+const FILE: &str = r#"test.mid"#;
 
 fn main() -> Result<(), String> {
-    let midi_data = std::fs::read("C:\\Users\\User\\Downloads\\csd.mid").unwrap();
+    let midi_data = std::fs::read(FILE).unwrap();
     let midi = Smf::parse(&midi_data).unwrap();
-    let track = Track::from_midi(&midi);
+    let mut track = Track::from_midi(&midi);
 
     let frame_interval_nano = 1_000_000_000 / FPS;
     let mut curr_tick = -TICKSCENE_WIDTH;
     // TODO: Figure out how TPQN actually works :thinking:
-    let ticks_per_frame = 1 * (frame_interval_nano / 1000) / 1000; // MIDI ticks is based on microseconds, so we convert nanos to micros
+    // 750000: 7500000 microseconds per quarter note, 7500000 * 4 * 60
+    let ticks_per_frame = track.tpqn / (frame_interval_nano / 1000) / 3; // MIDI ticks is based on microseconds, so we convert nanos to micros
 
     println!(
         "Notes: {}\nTicks per quarter note: {}",
@@ -65,24 +71,33 @@ fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'main,
+                Event::Window {
+                    timestamp,
+                    window_id,
+                    win_event,
+                } => match win_event {
+                    sdl2::event::WindowEvent::Resized(w, h) => {
+                        canvas.window_mut().set_size(w as u32, h as u32).unwrap();
+                    }
+                    _ => {}
+                },
+
                 _ => {}
             }
         }
 
         canvas.clear();
 
-        for note in track.notes.iter() {
-            if note.is_pressed(curr_tick) {
-                canvas.set_draw_color(NOTE_COL_PRESSED);
-            } else {
-                canvas.set_draw_color(NOTE_COL);
-            }
+        for note in track.notes.iter_mut() {
+            note.tick(curr_tick);
+
+            canvas.set_draw_color(note.get_color());
 
             canvas.fill_frect(FRect::new(
                 note.get_x(curr_tick),
                 note.get_y(),
                 note.get_width(),
-                NOTE_HEIGHT - NOTE_BORDER * 2.0,
+                NOTE_HEIGHT - NOTE_PADDING * 2.0,
             ))?;
         }
 
@@ -106,6 +121,10 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
 fn scene_to_screen_w_offset(x: i32) -> f64 {
     let scale = SCREEN_SIZE.0 as f64 / TICKSCENE_WIDTH as f64;
     x as f64 * scale + CUR_IND_LOC as f64
@@ -120,9 +139,14 @@ fn scene_to_screen(x: i32) -> f64 {
 
 #[derive(Debug, Clone, Copy)]
 struct Note {
+    // Basic props
     start_tick: i32, // 0 ~ 2^28-1
     duration: i32,   // 0 ~ 2^28-1
     key: u7,         // 0 ~ 127
+
+    // Render props
+    pressed: bool,
+    pressed_ticks: i32,
 }
 
 impl Note {
@@ -131,16 +155,63 @@ impl Note {
             start_tick,
             duration,
             key,
+            pressed: false,
+            pressed_ticks: 0,
         }
     }
 
-    fn is_pressed(&self, curr_tick: i32) -> bool {
-        self.start_tick <= curr_tick && curr_tick < self.start_tick + self.duration
+    fn tick(&mut self, curr_tick: i32) -> bool {
+        let pressed = self.start_tick <= curr_tick && curr_tick < self.start_tick + self.duration;
+        if pressed {
+            self.pressed = true;
+            self.pressed_ticks += 1;
+            return true;
+        } else {
+            self.pressed = false;
+            self.pressed_ticks = 0;
+            return false;
+        }
+    }
+
+    // Gets the easing t between 0 and 1
+    fn easing_t_color(&self) -> f32 {
+        f32::clamp(self.pressed_ticks as f32 / 20.0, 0.0, 1.0)
+    }
+
+    fn easing_t(&self) -> f32 {
+        f32::clamp(
+            -(self.pressed_ticks as f32 / 10.0 - 1.0).abs() + 1.0,
+            0.0,
+            1.0,
+        )
+    }
+
+    fn get_color(&self) -> Color {
+        if self.pressed {
+            let color = lerp(
+                NOTE_BR_PRESSED as f32,
+                NOTE_BR as f32,
+                ezing::sine_out(self.easing_t_color()),
+            ) as u8;
+            Color::RGB(color, color, color)
+        } else {
+            NOTE_COL
+        }
     }
 
     fn get_y(&self) -> f32 {
         let note_h = (SCREEN_SIZE.1 / 0x7f) as f32; // We have 128 keys
-        return SCREEN_SIZE.1 as f32 - (u8::from(self.key) as f32 * note_h) + NOTE_BORDER;
+        return SCREEN_SIZE.1 as f32 - (u8::from(self.key) as f32 * note_h)
+            + NOTE_PADDING
+            + self.easing_offset();
+    }
+
+    fn easing_offset(&self) -> f32 {
+        if self.pressed {
+            return lerp(0.0, NOTE_PADDING * 2.0, ezing::sine_out(self.easing_t()));
+        } else {
+            return 0.0;
+        }
     }
 
     fn get_width(&self) -> f32 {

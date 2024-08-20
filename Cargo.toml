@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 sdl2 = "0.37"
 midly = "0.5"
+ezing = "0.2.1"
