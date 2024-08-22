@@ -3,15 +3,15 @@
 extern crate ezing;
 extern crate sdl2;
 
-// TODO: Integrated MIDI Player
+mod audio;
+
 use midly::{num::u7, MetaMessage, MidiMessage, Smf, TrackEventKind};
+use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::FRect;
-use sdl2::event::Event;
 use std::{collections::HashMap, time::Duration};
 
-// TODO: Configuration files
 const NOTE_BR_PRESSED: u8 = 255;
 const NOTE_BR: u8 = 150;
 const NOTE_COL: Color = Color::RGB(NOTE_BR, NOTE_BR, NOTE_BR);
@@ -20,10 +20,10 @@ const BG_COL: Color = Color::RGB(0, 0, 0);
 const NOTE_HEIGHT: f32 = 10.0;
 const NOTE_PADDING: f32 = 1.0;
 const FPS: u32 = 60;
-const TICKSCENE_WIDTH: i32 = 5000; // Lower means notes are larger
+const TICKSCENE_WIDTH: i32 = 768; // Lower means notes are larger
 const CUR_IND_LOC: i32 = 200; // Offsets the current indicator
 const SCREEN_SIZE: (u32, u32) = (800, 800); // 5:4
-const FILE: &str = r#"test.mid"#;
+const FILE: &str = r#"csd.mid"#;
 
 fn main() -> Result<(), String> {
     let midi_data = std::fs::read(FILE).unwrap();
@@ -31,10 +31,10 @@ fn main() -> Result<(), String> {
     let mut track = Track::from_midi(&midi);
 
     let frame_interval_nano = 1_000_000_000 / FPS;
-    let mut curr_tick = -TICKSCENE_WIDTH;
+    let mut curr_tick = -TICKSCENE_WIDTH; // Let notes appear from the right side of the screen
     // TODO: Figure out how TPQN actually works :thinking:
-    // 750000: 7500000 microseconds per quarter note, 7500000 * 4 * 60
-    let ticks_per_frame = track.tpqn / (frame_interval_nano / 1000) / 3; // MIDI ticks is based on microseconds, so we convert nanos to micros
+    // 375000: 375000 microseconds per quarter note, 7500000 * 4 * 60 
+    let ticks_per_frame = track.tpqn / (frame_interval_nano / 1000) / 6; // MIDI ticks is based on microseconds, so we convert nanos to micros
 
     println!(
         "Notes: {}\nTicks per quarter note: {}",
@@ -47,11 +47,12 @@ fn main() -> Result<(), String> {
     // Initializing SDL2
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
+    let sine_waves = audio::init_audio(&sdl_context)?;
 
     let window = video_subsystem
         .window("midi-visualizer", SCREEN_SIZE.0, SCREEN_SIZE.1)
         .position_centered()
-        //.resizable()
+        .resizable()
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -77,11 +78,11 @@ fn main() -> Result<(), String> {
                     win_event,
                 } => match win_event {
                     sdl2::event::WindowEvent::Resized(w, h) => {
+                        // TODO: Resize event also applys to the scene
                         canvas.window_mut().set_size(w as u32, h as u32).unwrap();
                     }
                     _ => {}
                 },
-
                 _ => {}
             }
         }
@@ -89,7 +90,12 @@ fn main() -> Result<(), String> {
         canvas.clear();
 
         for note in track.notes.iter_mut() {
-            note.tick(curr_tick);
+            if note.tick(curr_tick) && note.pressed_ticks == 1 {
+                // Don't generate sine real time or it will bug
+
+                let sine_wave = sine_waves.get(&note.key).unwrap();
+                sdl2::mixer::Channel::all().play(&sine_wave, 0)?;
+            }
 
             canvas.set_draw_color(note.get_color());
 
@@ -109,7 +115,8 @@ fn main() -> Result<(), String> {
             SCREEN_SIZE.1 as f32,
         ))?;
 
-        println!("tick: {}:", curr_tick);
+        // TODO: Tick text
+        // println!("tick: {}:", curr_tick);
 
         canvas.set_draw_color(BG_COL);
         canvas.present();
@@ -118,6 +125,7 @@ fn main() -> Result<(), String> {
         std::thread::sleep(Duration::new(0, frame_interval_nano));
     }
 
+    sdl2::mixer::Music::halt();
     Ok(())
 }
 
@@ -263,6 +271,7 @@ impl Track {
                             // Cache pressed keys
                             pressed_keys.insert(key, offset);
                         }
+                        // FIXME: Some files just dont load
                         MidiMessage::NoteOff { key, vel } => {
                             if pressed_keys.contains_key(&key) {
                                 track.notes.push(Note::new(
