@@ -7,7 +7,7 @@
 - 2D visualization of MIDI files
 - Indicator
 - Built-in synthesizer
-- TODO: Configurable
+- Fully Configurable
 - TODO: Export to video (Requires FFmpeg)
 - TODO: Multiple channels = Multiple colors!
 

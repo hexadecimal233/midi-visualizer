@@ -23,6 +23,7 @@ pub fn init_audio(sdl_context: &Sdl) -> Result<HashMap<u7, Chunk>, String> {
     sdl2::mixer::init(InitFlag::all())?;
     sdl2::mixer::allocate_channels(256);
 
+    // TODO: Sustain notes
     let sine_waves = (0..127)
         .map(|key| ((key as u8).into(), get_square_wave(0.5, key))) // This can also be changed to other wave shapes
         .collect();
@@ -36,11 +37,6 @@ pub fn get_sine_wave(
 ) -> Chunk {
     let freq = 440.0 * 2.0_f64.powf((key as f64 - 69.0) / 12.0);
     let sample_count = (SAMPLERATE as f32 * duration) as u32;
-
-    println!(
-        "playing note {}: freq = {}, sample_count = {}",
-        key, freq, sample_count
-    );
 
     let buffer = (0..sample_count)
         .map(|t| {
@@ -64,11 +60,6 @@ pub fn get_square_wave(
 ) -> Chunk {
     let freq = 440.0 * 2.0_f64.powf((key as f64 - 69.0) / 12.0);
     let sample_count = (SAMPLERATE as f32 * duration) as u32;
-
-    println!(
-        "playing note {}: freq = {}, sample_count = {}",
-        key, freq, sample_count
-    );
 
     let buffer = (0..sample_count)
         .map(|t| {
