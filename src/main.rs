@@ -13,9 +13,6 @@ use midly::Smf;
 use myconfig::*;
 use sdl2::keyboard::Keycode;
 use sdl2::rect::FRect;
-use sdl2::render::{Canvas, Texture, TextureCreator};
-use sdl2::ttf::Font;
-use sdl2::video::{Window, WindowContext};
 use sdl2::{event::Event, render::TextureQuery};
 use std::time::{Duration, Instant};
 
