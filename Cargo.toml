@@ -27,11 +27,3 @@ rev = "2024.05.24" # release 2024.05.24 # to check for a new one, check https://
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md" }
-
-# optimizations
-[profile.release]
-opt-level = "s"
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = "symbols"

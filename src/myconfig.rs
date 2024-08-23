@@ -31,6 +31,23 @@ lazy_static! {
             .get::<i32>("visuals.note_color")
             .unwrap()
     );
+    pub static ref NOTE_HEIGHT: f32 = CONFIG
+        .read()
+        .unwrap()
+        .get::<f32>("visuals.note_height")
+        .unwrap();
+    pub static ref NOTE_PADDING: f32 = CONFIG
+        .read()
+        .unwrap()
+        .get::<f32>("visuals.note_padding_y")
+        .unwrap();
+    pub static ref TEXT_COL: Color = color_fromi32(
+        CONFIG
+            .read()
+            .unwrap()
+            .get::<i32>("visuals.text_color")
+            .unwrap()
+    );
     pub static ref BG_COL: Color = color_fromi32(
         CONFIG
             .read()
@@ -45,16 +62,6 @@ lazy_static! {
             .get::<i32>("visuals.current_tick_indicator_color")
             .unwrap()
     );
-    pub static ref NOTE_HEIGHT: f32 = CONFIG
-        .read()
-        .unwrap()
-        .get::<f32>("visuals.note_height")
-        .unwrap();
-    pub static ref NOTE_PADDING: f32 = CONFIG
-        .read()
-        .unwrap()
-        .get::<f32>("visuals.note_padding_y")
-        .unwrap();
     pub static ref FPS: u32 = CONFIG.read().unwrap().get::<u32>("system.fps").unwrap();
     pub static ref TICKSCENE_WIDTH: i32 = CONFIG
         .read()
@@ -77,6 +84,11 @@ lazy_static! {
             wh.get("h").unwrap().clone().into_uint().unwrap() as u32,
         ))
     };
+    pub static ref PLAYBACK_SPD: f64 = CONFIG
+        .read()
+        .unwrap()
+        .get_float("system.playback_speed")
+        .unwrap();
 }
 
 pub fn screen_size() -> (u32, u32) {
