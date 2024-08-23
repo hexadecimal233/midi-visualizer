@@ -12,6 +12,11 @@ lazy_static! {
             .build()
             .unwrap()
     );
+    pub static ref CUSTOM_NOTE_COL: bool = CONFIG
+        .read()
+        .unwrap()
+        .get_bool("visuals.custom_note_color")
+        .unwrap();
     pub static ref FILE: String = CONFIG
         .read()
         .unwrap()

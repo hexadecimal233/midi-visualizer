@@ -1,10 +1,11 @@
 [visuals]
+custom_note_color = false                 # If set to false, the two settings below will be ignored
 note_color_pressed = 0xffffff
 note_color = 0x7f7f7f
 note_height = 10.0
 note_padding_y = 1.0
 text_color = 0xffffff
-background_color = 0x00ff00
+background_color = 0x000000
 tickscene_width = 1000                  # Lower means notes are more wider
 current_tick_indicator_x_offset = 200
 current_tick_indicator_color = 0xff0000

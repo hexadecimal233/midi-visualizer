@@ -6,6 +6,7 @@ extern crate lazy_static;
 extern crate sdl2;
 
 mod audio;
+mod midi;
 mod myconfig;
 
 use midly::{num::u7, MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
@@ -14,6 +15,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::FRect;
 use sdl2::{event::Event, render::TextureQuery};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::{
     collections::{BTreeMap, HashMap},
     i64,
@@ -52,8 +54,7 @@ fn main() -> Result<(), String> {
     let mut event_pump = sdl_context.event_pump()?;
 
     let midi_data = std::fs::read(FILE.clone()).unwrap();
-    let midi = Smf::parse(&midi_data).unwrap();
-    let mut track = Track::from_midi(&midi);
+    let mut midi = MIDI::from_midi(&Smf::parse(&midi_data).unwrap());
 
     let frame_interval_nano = 1_000_000_000 / *FPS;
     let mut curr_tick: i64 = (-*TICKSCENE_WIDTH).into(); // Let notes appear from the right side of the screen
@@ -88,34 +89,36 @@ fn main() -> Result<(), String> {
         canvas.clear();
 
         // last_mspq last_mspq_tick = 0, so always trigger on first played
-        let (tick_before_curr_mspq, mspq) = track.get_current_mspq_and_tick(curr_tick);
+        let (tick_before_curr_mspq, mspq) = midi.get_current_mspq_and_tick(curr_tick);
 
         if tick_before_curr_mspq != last_mspq_tick {
             last_mspq_tick = tick_before_curr_mspq;
             last_mspq_change = Instant::now();
         }
 
-        for note in track.notes.iter_mut() {
-            if note.tick(curr_tick) && note.pressed_ticks == 1 {
-                // Don't generate sine real time or it will bug
+        for track in midi.tracks.iter_mut() {
+            for note in track.notes.iter_mut() {
+                if note.tick(curr_tick) && note.pressed_ticks == 1 {
+                    // Don't generate sine real time or it will bug
 
-                let sine_wave = sine_waves.get(&note.key).unwrap();
-                sdl2::mixer::Channel::all().play(&sine_wave, 0)?;
-            }
+                    let sine_wave = sine_waves.get(&note.key).unwrap();
+                    sdl2::mixer::Channel::all().play(&sine_wave, 0)?;
+                }
 
-            let note_x = note.get_x(curr_tick);
-            let note_w = note.get_width();
+                let note_x = note.get_x(curr_tick);
+                let note_w = note.get_width();
 
-            // Skip out-of-screen notes to improve performance
-            if note_x + note_w >= 0.0 && note_x < screen_size().0 as f32 {
-                canvas.set_draw_color(note.get_color());
+                // Skip out-of-screen notes to improve performance
+                if note_x + note_w >= 0.0 && note_x < screen_size().0 as f32 {
+                    canvas.set_draw_color(note.get_color(track.color));
 
-                canvas.fill_frect(FRect::new(
-                    note_x,
-                    note.get_y(),
-                    note_w,
-                    *NOTE_HEIGHT - *NOTE_PADDING * 2.0,
-                ))?;
+                    canvas.fill_frect(FRect::new(
+                        note_x,
+                        note.get_y(),
+                        note_w,
+                        *NOTE_HEIGHT - *NOTE_PADDING * 2.0,
+                    ))?;
+                }
             }
         }
 
@@ -130,7 +133,7 @@ fn main() -> Result<(), String> {
         let surface = font
             .render(&format!(
                 "Total notes: {}\nCurrent tick: {}\nBPM: {:.3}",
-                track.notes.len(),
+                midi.tracks.len(),
                 curr_tick.to_string(),
                 get_bpm(mspq)
             ))
@@ -152,11 +155,12 @@ fn main() -> Result<(), String> {
 
         let elapsed_time =
             ((Instant::now() - last_mspq_change).as_micros() as f64 * *PLAYBACK_SPD) as i64;
-        let tick_after = elapsed_time * track.ppq as i64 / mspq as i64;
+        let tick_after = elapsed_time * midi.ppq as i64 / mspq as i64;
 
         curr_tick = tick_before_curr_mspq + tick_after;
 
-        if curr_tick >= track.length {
+        // End of track
+        if curr_tick >= midi.length {
             break 'main;
         }
 
@@ -191,6 +195,18 @@ fn scene_to_screen_w_offset(x: i64) -> f64 {
 fn scene_to_screen(x: i64) -> f64 {
     let scale = screen_size().0 as f64 / *TICKSCENE_WIDTH as f64;
     x as f64 * scale
+}
+
+fn get_track_color(seed: usize) -> Color {
+    let mut hasher = DefaultHasher::new();
+    seed.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let r = ((hash >> 24) & 0xFF) as u8;
+    let g = ((hash >> 16) & 0xFF) as u8;
+    let b = ((hash >> 8) & 0xFF) as u8;
+
+    Color::RGB(r, g, b)
 }
 
 // MIDI Processing part
@@ -245,15 +261,26 @@ impl Note {
         )
     }
 
-    fn get_color(&self) -> Color {
+    fn get_color(&self, track_color: Color) -> Color {
+        let note_col = if *CUSTOM_NOTE_COL {
+            *NOTE_COL
+        } else {
+            track_color
+        };
+        let pressed_col = if *CUSTOM_NOTE_COL {
+            *NOTE_COL_PRESSED
+        } else {
+            track_color.invert()
+        };
+
         if self.pressed {
             lerp_color(
-                *NOTE_COL_PRESSED,
-                *NOTE_COL,
+                pressed_col,
+                note_col,
                 ezing::sine_out(self.easing_t_color()),
             )
         } else {
-            *NOTE_COL
+            note_col
         }
     }
 
@@ -281,17 +308,32 @@ impl Note {
     }
 }
 
+
 struct Track {
-    mspq: BTreeMap<i64, u32>, // Actually a u24
-    ppq: u32,                 // Actually a u15
-    length: i64,
     notes: Vec<Note>,
+    color: Color,
 }
 
 impl Track {
-    fn new(ppq: u32) -> Track {
+    fn new() -> Track {
         Track {
             notes: Vec::new(),
+            color: *NOTE_COL,
+        }
+    }
+}
+
+struct MIDI {
+    mspq: BTreeMap<i64, u32>, // Actually a u24
+    ppq: u32,                 // Actually a u15
+    length: i64,
+    tracks: Vec<Track>,
+}
+
+impl MIDI {
+    fn new(ppq: u32) -> MIDI {
+        MIDI {
+            tracks: Vec::new(),
             mspq: BTreeMap::from([(i64::MIN, A_MINUTE / 120)]),
             ppq,
             length: i64::MAX,
@@ -316,15 +358,17 @@ impl Track {
 
         result
     }
-    fn from_midi(midi: &midly::Smf) -> Track {
-        let mut track = Track::new(match midi.header.timing {
+    fn from_midi(midly: &midly::Smf) -> MIDI {
+        let mut midi = MIDI::new(match midly.header.timing {
             Timing::Metrical(ppq) => u16::from(ppq) as u32,
             _ => panic!("Unsupported timing"),
         });
 
-        for m_track in &midi.tracks {
+        for m_track in &midly.tracks {
+            let mut track = Track::new();
             let mut offset: i64 = 0;
             let mut pressed_keys: HashMap<u7, i64> = HashMap::new();
+
             for event in m_track {
                 if event.delta != 0 {
                     offset += u32::from(event.delta) as i64;
@@ -333,10 +377,10 @@ impl Track {
                 match event.kind {
                     TrackEventKind::Meta(meta) => match meta {
                         MetaMessage::Tempo(tempo) => {
-                            track.mspq.insert(offset, u32::from(tempo));
+                            midi.mspq.insert(offset, u32::from(tempo));
                         }
                         MetaMessage::EndOfTrack => {
-                            track.length = offset;
+                            midi.length = offset;
                         }
                         _ => {}
                     },
@@ -369,12 +413,15 @@ impl Track {
                     _ => {}
                 }
             }
+
+            track.color = get_track_color(midi.tracks.len());
+            midi.tracks.push(track);
         }
 
-        if track.mspq.len() == 1 {
+        if midi.mspq.len() == 1 {
             println!("WARNING: No tempo events found. Defaulting to 120 bpm.");
         }
 
-        return track;
+        return midi;
     }
 }
