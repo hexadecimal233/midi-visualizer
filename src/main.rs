@@ -13,6 +13,9 @@ use midly::Smf;
 use myconfig::*;
 use sdl2::keyboard::Keycode;
 use sdl2::rect::FRect;
+use sdl2::render::{Canvas, Texture, TextureCreator};
+use sdl2::ttf::Font;
+use sdl2::video::{Window, WindowContext};
 use sdl2::{event::Event, render::TextureQuery};
 use std::time::{Duration, Instant};
 
@@ -22,10 +25,7 @@ fn main() -> Result<(), String> {
     let video_subsystem = sdl_context.video()?;
 
     let ttf_context = sdl2::ttf::init().unwrap();
-    let mut font = ttf_context.load_font(
-        r#"E:\SteamLibrary\steamapps\common\Teardown\data\ui\font\RobotoMono-Regular.ttf"#,
-        32,
-    )?;
+    let mut font = ttf_context.load_font("./assets/FiraCode-Regular.ttf", 32)?;
     font.set_style(sdl2::ttf::FontStyle::NORMAL);
 
     let sine_waves = audio::init_audio(&sdl_context)?;
@@ -50,6 +50,14 @@ fn main() -> Result<(), String> {
 
     let frame_interval_nano = 1_000_000_000 / *FPS;
     let mut curr_tick: i64 = (-*TICKSCENE_WIDTH).into(); // Let notes appear from the right side of the screen
+
+    let total_notes = {
+        let mut counter = 0;
+        for track in &midi.tracks {
+            counter += track.notes.len();
+        }
+        counter
+    };
 
     let mut last_mspq_tick: i64 = 0;
     let mut last_mspq_change = Instant::now();
@@ -122,23 +130,38 @@ fn main() -> Result<(), String> {
             screen_size().1 as f32,
         ))?;
 
-        let surface = font
-            .render(&format!(
+        let mut render_font_xy = |text: &str, x: f32, y: f32| {
+            let lines = text.lines().collect::<Vec<_>>();
+
+            for (i, line) in lines.iter().enumerate() {
+                let surface = font.render(line).blended(*TEXT_COL).unwrap();
+
+                let texture = texture_creator
+                    .create_texture_from_surface(&surface)
+                    .unwrap();
+
+                let TextureQuery { width, height, .. } = texture.query();
+                let target = FRect::new(
+                    x,
+                    y + font.recommended_line_spacing() as f32 * i as f32,
+                    width as f32,
+                    height as f32,
+                );
+
+                let _ = canvas.copy_f(&texture, None, Some(target));
+            }
+        };
+
+        render_font_xy(
+            &format!(
                 "Total notes: {}\nCurrent tick: {}\nBPM: {:.3}",
-                midi.tracks.len(),
+                total_notes,
                 curr_tick.to_string(),
                 get_bpm(mspq)
-            ))
-            .blended(*TEXT_COL)
-            .unwrap();
-
-        let texture = texture_creator
-            .create_texture_from_surface(&surface)
-            .unwrap();
-
-        let TextureQuery { width, height, .. } = texture.query();
-        let target = FRect::new(0.0, 0.0, width as f32, height as f32);
-        canvas.copy_f(&texture, None, Some(target))?;
+            ),
+            0.0,
+            0.0,
+        );
 
         canvas.set_draw_color(*BG_COL);
         canvas.present();
