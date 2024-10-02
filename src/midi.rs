@@ -140,6 +140,14 @@ impl Note {
 }
 
 #[derive(Debug, Clone)]
+pub struct MIDI {
+    pub mspq: BTreeMap<i64, u32>, // Actually a u24
+    pub ppq: u32,                 // Actually a u15
+    pub length: i64,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Track {
     pub notes: Vec<Note>,
     pub color: Color,
@@ -154,14 +162,6 @@ impl Track {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct MIDI {
-    pub mspq: BTreeMap<i64, u32>, // Actually a u24
-    pub ppq: u32,                 // Actually a u15
-    pub length: i64,
-    pub tracks: Vec<Track>,
-}
-
 impl MIDI {
     fn new(ppq: u32) -> MIDI {
         MIDI {
@@ -172,7 +172,7 @@ impl MIDI {
         }
     }
 
-    pub fn get_current_mspq_and_tick(&self, curr_tick: i64) -> (i64, u32) {
+    pub fn get_current_tick_and_mspq(&self, curr_tick: i64) -> (i64, u32) {
         // Get the tick value of the closest previous MSPQ change
         let mut result = (0, 0);
         if let Some((&closest_tick, &mspq_value)) = self.mspq.range(..=curr_tick).next_back() {
@@ -218,7 +218,7 @@ impl MIDI {
                     },
                     TrackEventKind::Midi { channel, message } => match message {
                         MidiMessage::NoteOn { key, vel } => {
-                            // Cache pressed keys
+                            // Cache pressed keys, notes are marked off when vel = 0 or NoteOff is triggered
                             if vel == 0 && pressed_keys.contains_key(&key) {
                                 track.notes.push(Note::new(
                                     *pressed_keys.get(&key).unwrap(),

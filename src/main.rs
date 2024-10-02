@@ -86,7 +86,7 @@ fn main() -> Result<(), String> {
         canvas.clear();
 
         // last_mspq last_mspq_tick = 0, so always trigger on first played
-        let (tick_before_curr_mspq, mspq) = midi.get_current_mspq_and_tick(curr_tick);
+        let (tick_before_curr_mspq, mspq) = midi.get_current_tick_and_mspq(curr_tick);
 
         if tick_before_curr_mspq != last_mspq_tick {
             last_mspq_tick = tick_before_curr_mspq;
@@ -154,7 +154,7 @@ fn main() -> Result<(), String> {
                 "Total notes: {}\nCurrent tick: {}\nBPM: {:.3}",
                 total_notes,
                 curr_tick.to_string(),
-                get_bpm(mspq)
+                60_000_000.0 / mspq as f64
             ),
             0.0,
             0.0,
@@ -181,8 +181,4 @@ fn main() -> Result<(), String> {
 
     sdl2::mixer::Music::halt();
     Ok(())
-}
-
-fn get_bpm(mspq: u32) -> f64 {
-    60_000_000.0 / mspq as f64
 }
